@@ -1,0 +1,158 @@
+<html>
+  <head>
+    <title>p2p bitrate configuration example</title>
+    <script src="https://unpkg.com/@daily-co/daily-js"></script>
+
+  <!-- 
+      Minimal test code showing p2p bitrate control with Daily's APIs.
+
+      Supply a Daily domain and room as URL arguments.
+
+      Note: this code has almost no error handling. (Errors are printed to the
+      console.) And no attempt is made to handle more than two simultaneous
+      participants.
+
+      Note: this code has almost no error handling. (Errors are printed to the
+      console.) And no attempt is made to handle more than two simultaneous
+      participants.
+  -->
+  
+  <script>
+
+    const _width = 640;
+    const _height = 480;
+    const _fps = 24;
+    const _kbs = 450;
+
+    async function main() {
+      getArgs();
+      
+      //
+      // create the top-level Daily call object
+      //
+      window.call = DailyIframe.createCallObject({
+        url: window._room,
+        dailyConfig: {
+          userMediaVideoConstraints: {
+            width: { ideal: _width, max: _width },
+            height: { ideal: _height, max: _height },
+            frameRate: { exact: _fps }
+          },
+        }
+
+      });
+
+      //
+      // attach minimal event handlers: print errors and handle tracks
+      //
+      call.on('error', (evt) => console.error(evt));
+      call.on('track-started', (evt) => attachTrack(evt));
+      
+      //
+      // join the session and set
+      //
+      await call.join();
+
+      //
+      // ensure peer-to-peer mode
+      //
+      // setNetworkTopology() is mostly used for testing (and for a few
+      // unusual use cases). In general, in production code, it's better
+      // to configure p2p/sfu switchover behavior using a persistent
+      // room property
+      //
+      call.setNetworkTopology({ topology: 'peer' });
+
+      //
+      // in peer-to-peer mode, setNetwork() is the best way to set
+      // a bandwidth cap. new APIs with more flexibility are in beta
+      //
+      call.setBandwidth({ kbs: _kbs });
+
+      //
+      // display stats
+      // 
+      doStats();
+    }
+
+    function attachTrack(evt) {
+      console.log('track-started', evt);
+
+      // we only want to handle video tracks in this demo
+      if (evt.track.kind !== 'video') {
+        return;
+      }
+
+      // for the local participant, attach to the local <video> element,
+      // and for the remote participant, attach to the receive element
+      if (evt.participant.local) {
+        document.querySelector('.cam .local').srcObject =
+          new MediaStream([evt.track]);
+      } else {
+        document.querySelector('.cam .receive').srcObject =
+          new MediaStream([evt.track]);
+      }
+    }
+
+    async function doStats() {
+      let stats = (await window.call.getNetworkStats()).stats;
+      let kbs = Math.round(stats.latest.videoRecvBitsPerSecond/1000);
+      if (!kbs) {
+        setTimeout(() => doStats(), 2000);
+        return;
+      }
+
+      document.querySelector('.label').innerHTML = `${kbs} kbs`;
+
+      setTimeout(() => doStats(), 2000);
+    }
+
+    function getArgs() {  
+      //
+      // url args for domain, room, width, height, fps
+      //
+      window._ps = (new URL(document.location)).searchParams;
+
+      if (!(_ps.get('domain') && _ps.get('room'))) {
+        throw new Error('need domain and room args');
+      }
+      window._room = `https://${_ps.get('domain')}.daily.co/${_ps.get('room')}`;
+
+      console.log('arguments: ', _room, _width, _height, _fps, _kbs);
+    }
+
+  </script>
+
+  <style>
+    video {
+      background-color: red;
+    }
+    #outer-container {
+      width: 100%;
+    }
+    .cam .local {
+      width: 15%;
+      position: absolute;
+      transform: scale(-1, 1);
+    }
+    .cam .receive {
+      width: 100%;
+    }
+    .label {
+      
+    }
+  </style>
+  </head>
+
+  <body onload="main()">
+
+    <div class="outer-container">
+      <div class="cam">
+        <video class="local" autoplay playsinline></video>
+        <video class="receive" autoplay playsinline></video>
+      </div>
+      <div class="label">...</div>
+    </div>
+
+  </body>
+</html>

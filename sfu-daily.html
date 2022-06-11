@@ -1,0 +1,194 @@
+<html>
+  <head>
+    <title>sfu simulcast configuration example</title>
+    <script src="https://unpkg.com/@daily-co/daily-js"></script>
+
+  <!-- 
+      Minimal test code showing sfu bitrate control with Daily's APIs.
+
+      Supply a Daily domain and room as URL arguments.
+
+      Note: this code has almost no error handling. (Errors are printed to the
+      console.) And no attempt is made to handle more than two simultaneous
+      participants.
+  -->
+
+  <script>
+
+    const _width = 640;
+    const _height = 480;
+    const _fps = 24;
+    const _highBitrate = 450; // kbs
+    const _lowBitrate = 200;
+
+    async function main() {
+      getArgs();
+      
+      //
+      // create the top-level Daily call object
+      //
+      window.call = DailyIframe.createCallObject({
+        url: window._room,
+
+
+        // you can control input track settings and outgoing bitrate
+        // caps with setBandwidth(), but userMediaVideoConstraints
+        // and camSimulcastSettings are part of a newer set of Daily APIs
+        // that make it easier to set up independent receive-side
+        // and send-side "patterns" for clients with complex UIs
+        dailyConfig: {
+          userMediaVideoConstraints: {
+            width: { ideal: _width, max: _width },
+            height: { ideal: _height, max: _height },
+            frameRate: { exact: _fps }
+          },
+          camSimulcastEncodings: [
+            // must be ordered low to high
+            { 
+              maxBitrate: _lowBitrate * 1000,
+              scaleResolutionDownBy: 2,
+              maxFramerate: _fps/2
+            },
+            { 
+              maxBitrate: _highBitrate * 1000,
+              maxFramerate: _fps
+            },
+          ]
+        }
+
+      });
+
+      //
+      // attach minimal event handlers: print errors and handle tracks
+      //
+      call.on('error', (evt) => console.error(evt));
+      call.on('track-started', (evt) => attachTrack(evt));
+      
+      //
+      // join the session and set
+      //
+      await call.join();
+
+      //
+      // ensure sfu mode
+      //
+      // setNetworkTopology() is mostly used for testing (and for a few
+      // unusual use cases). In general, in production code, it's better
+      // to configure p2p/sfu switchover behavior using a persistent
+      // room property
+      //
+      call.setNetworkTopology({ topology: 'sfu' });
+
+      //
+      // display stats
+      // 
+      doStats();
+    }
+
+    function attachTrack(evt) {
+      // we only want to handle video tracks in this demo
+      if (evt.track.kind !== 'video') {
+        return;
+      }
+
+      // for the local participant, attach to the local <video> element,
+      // and for the remote participant, attach to the receive element
+      if (evt.participant.local) {
+        document.querySelector('.cam .local').srcObject =
+          new MediaStream([evt.track]);
+      } else {
+        document.querySelector('.cam .receive').srcObject =
+          new MediaStream([evt.track]);
+      }
+    }
+
+    async function updateRecvSettings(el) {
+      //
+      // If the checkbox in the UI is checked, subscribe to the lowest
+      // simulcast layer on this client. Otherwise reset to subscribe
+      // to the highest simulcast layer the client can receive (subject
+      // to network constraints).
+      //
+      if (el.checked) {
+        window.call.updateReceiveSettings({ '*': { video: { layer: 0 } } });
+      } else {
+        // use 2 here instead of 1, in case we have three simulcast layers,
+        // even though this demo is configured to only have two
+        window.call.updateReceiveSettings({ '*': { video: { layer: 2 } } });
+      }
+    }
+
+    async function doStats() {
+      let stats = (await window.call.getNetworkStats()).stats;
+      let send = Math.round(stats.latest.videoSendBitsPerSecond/1000);
+      let recv = Math.round(stats.latest.videoRecvBitsPerSecond/1000);
+
+      if (!send) {
+        setTimeout(() => doStats(), 2000);
+        return;
+      }
+
+      document.querySelector('.label').innerHTML = 
+        `sending: ${send} kbs  |  receiving: ${recv} kbs`;
+
+      setTimeout(() => doStats(), 2000);
+    }
+
+    function getArgs() {  
+      //
+      // url args for domain, room, width, height, fps
+      //
+      window._ps = (new URL(document.location)).searchParams;
+
+      if (!(_ps.get('domain') && _ps.get('room'))) {
+        throw new Error('need domain and room args');
+      }
+      window._room = `https://${_ps.get('domain')}.daily.co/${_ps.get('room')}`;
+
+      console.log('arguments: ', _room, _width, _height, _fps);
+    }
+
+  </script>
+
+  <style>
+    video {
+      background-color: red;
+    }
+    #outer-container {
+      width: 100%;
+    }
+    .cam .local {
+      width: 15%;
+      position: absolute;
+      transform: scale(-1, 1);
+    }
+    .cam .receive {
+      width: 100%;
+    }
+    .label {
+      float: left;
+    }
+    #recv-layer-setting {
+      text-align: right;
+    }
+  </style>
+  </head>
+
+  <body onload="main()">
+
+    <div class="outer-container">
+      <div class="cam">
+        <video class="local" autoplay playsinline></video>
+        <video class="receive" autoplay playsinline></video>
+      </div>
+      <div>
+        <div class="label">...</div>
+        <div id="recv-layer-setting">
+          force recv bottom layer: 
+            <input type="checkbox" 
+                         onchange="updateRecvSettings(this)"></input>
+        <div>
+    </div>
+
+  </body>
+</html>

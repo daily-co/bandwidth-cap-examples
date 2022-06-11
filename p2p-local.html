@@ -1,0 +1,223 @@
+<html>
+  <head>
+    <title>p2p bitrate cap visual comparison</title>
+
+  <!-- 
+      Minimal test code for visually comparing resolution, framerate,
+      and bitrate caps. No external dependencies.
+
+      Intended to be run on a dev machine with a large screen. Size
+      the window so that both video elements are visible.
+
+      vp8 at 320x240, 15fps will default to a target bitrate of 600 kb/s
+      on today's browsers/libwebrtc.
+
+      vp8 at 640x480, 24fps is quite good, visually, at ~450 kb/s. The
+      bitrate estimator will ramp up to 480 kb/s over about 12
+      seconds. Initially, resolution will be 320x240 while the bitrate
+      estimator probes to see if a higher resolution is
+      possible. (The framerate will be prioritized, so framerate will be
+      24fps from the start of the stream, assuming there is minimal packet
+      loss).
+
+      Safari will auto-negotiate h264 if both clients in a p2p
+      connection are using Safari. Safari's h264 encoder is more
+      conservative than the libwebrtc vp8 and h264 encoders and will
+      use larger macroblocks and will target a maximum bitrate of ~250
+      kb/s. Because of the larger macroblocks, there will be little
+      visual difference between h264 and vp8 when Safari is sending a
+      track. Safari's h264 encoder also more aggressively reduced the
+      bitrate when there is relatively little motion in the track. The
+      main tradeoff is that with h264, packet loss handling is much
+      less robust, so on a network with bursty packet loss there will
+      be longer freezes and occasional video artifacts when a keyframe
+      is dropped. This is generally perceived by users as quite
+      disruptive.
+
+      Safari also will not always deliver the requested framerate when
+      more than one video track is live.
+
+      Note: this code has no error handling. (Errors are printed to the
+      console.)
+
+      
+  -->
+
+  <script>
+    async function main() {
+      try {
+    
+        //
+        // get 480p track. acquire this track first because some
+        // camera drivers can't return a high-resolution track while a
+        // lower-resolution track is active 
+        //
+        let track480 = await fetchVideoTrack(640, 480, 24);
+
+        //
+        // get 240p track
+        // 
+        let track240 = await fetchVideoTrack(320, 240, 15);
+
+        //
+        // set up a p2p connection for the 240p track. don't 
+        // set a bitrate target
+        //
+        let pc240 = await connect(
+          track240,
+          document.querySelector("#lowres-nocap .local"),
+          document.querySelector("#lowres-nocap .receive"),
+          null // no bitrate target
+        );
+
+        //
+        // set up a p2p connection for the 480p track with. set a bitrate
+        // target of 450 kb/s
+        //
+        let pc480 = await connect(
+          track480,
+          document.querySelector("#midres-capped .local"),
+          document.querySelector("#midres-capped .receive"),
+          450000 // set bitrate target to 450kb/s 
+        );
+
+        //
+        // fetch and print incoming video resolution, framerate,
+        // and bitrate. (hardcoded to refresh every two seconds.)
+        //
+        doStats(pc240, document.querySelector("#lowres-nocap .label"));
+        doStats(pc480, document.querySelector("#midres-capped .label"));
+        
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function fetchVideoTrack(width, height, frameRate) {
+      let track = await navigator.mediaDevices.getUserMedia(
+        { audio:false, video: {
+          width: { ideal: width, max: width },
+          height: { ideal: height, max: height },
+          frameRate: { exact: frameRate }
+        } });
+      return track.getVideoTracks()[0];
+    }
+
+    async function connect(track, localVideo, remoteVideo, bitrateTarget) {
+      // local video
+      localVideo.srcObject = new MediaStream([track]);
+
+      let pc1, pc2;
+      pc1 = new RTCPeerConnection({});
+      pc1.addTrack(track);
+      pc1.addEventListener('icecandidate', async (e) => {
+        //console.log('pc1 ice candidate', e);
+        pc2.addIceCandidate(e.candidate);
+      });
+      pc1.addEventListener('connectionstatechange', async (e) => {
+        console.log('pc1', e.target.connectionState);
+        if (e.target.connectionState === 'connected' && bitrateTarget) {
+          // set outbound track bitrate target
+          window.pc1 = pc1;
+          let params = pc1.getSenders()[0].getParameters();
+          params.encodings[0].maxBitrate = bitrateTarget;
+          await pc1.getSenders()[0].setParameters(params);
+        }
+      });
+      pc2 = new RTCPeerConnection({});
+      pc2.addEventListener('icecandidate', async (e) => {
+        //console.log('pc2 ice candidate', e);
+        pc1.addIceCandidate(e.candidate);
+      });
+      pc2.addEventListener('connectionstatechange', async (e) => {
+        console.log('pc2', e.target.connectionState);
+      });
+      pc2.addEventListener('track', (e) => {
+        console.log('got remote track', e);
+        remoteVideo.srcObject = new MediaStream([e.track]);
+      });
+
+      const offer = await pc1.createOffer({ offerToReceiveVideo: true });
+      await pc1.setLocalDescription(offer);
+      await pc2.setRemoteDescription(offer);
+      const answer = await pc2.createAnswer({ offerToReceiveVideo: true });
+      await pc2.setLocalDescription(answer);
+      await pc1.setRemoteDescription(answer);
+
+      // return the receive-side peer connection object
+      return pc2;
+    }
+
+    async function doStats(pc, el) {
+      if (!pc._lastStats) {
+        window.pc = pc;
+        pc._lastStats = { ts: Date.now(), bytesReceived: 0 };
+        setTimeout(() => doStats(pc, el), 2000);
+        return;
+      }
+      let ts = Date.now();
+      let stat = Array.from((await
+        pc.getReceivers()[0].getStats()).entries()
+      ).map((s) => s[1]).find((s) => s.trackId);
+      let kbs = Math.round(
+        ((stat.bytesReceived - pc._lastStats.bytesReceived) * 8) / 
+        ((ts - pc._lastStats.ts) / 1000) /
+        1000
+      );
+      let width = stat.frameWidth;
+      let height = stat.frameHeight;
+      let frameRate = stat.framesPerSecond;
+      pc._lastStats = {
+        ts, kbs, width, height, frameRate,
+        bytesReceived: stat.bytesReceived,
+      };
+      // console.log(pc._lastStats);
+
+      el.innerHTML = `${width}x${height}  ${frameRate}fps   ${kbs} kbs`; 
+      setTimeout(() => doStats(pc, el), 2000);
+    }
+  </script>
+
+  <style>
+    video {
+      background-color: red;
+    }
+    #outer-container {
+      width: 100%;
+    }
+    .cam .local {
+      width: 15%;
+      position: absolute;
+      transform: scale(-1, 1);
+    }
+    .cam .receive {
+      width: 100%;
+    }
+    .label {
+      
+    }
+  </style>
+  </head>
+
+  <body onload="main()">
+
+    <div id="lowres-nocap" class="outer-container">
+      <div class="cam">
+        <video class="local" autoplay></video>
+        <video class="receive" autoplay></video>
+      </div>
+      <div class="label">...</div>
+    </div>
+    
+    <br clear="all"></br>
+
+    <div id="midres-capped">
+      <div class="cam">
+        <video class="local" autoplay playsinline></video>
+        <video class="receive" autoplay playsinline></video>
+      </div>
+      <div class="label">...</div>
+    </div>
+
+  </body>
+</html>
