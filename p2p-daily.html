@@ -8,13 +8,11 @@
 
       Supply a Daily domain and room as URL arguments.
 
-      Note: this code has almost no error handling. (Errors are printed to the
-      console.) And no attempt is made to handle more than two simultaneous
-      participants.
-
-      Note: this code has almost no error handling. (Errors are printed to the
-      console.) And no attempt is made to handle more than two simultaneous
-      participants.
+      Note: this code has almost no error handling. (Errors are
+      printed to the console.) Also, no attempt is made to handle more
+      than two simultaneous participants. (If more than two clients
+      join the session at the same time, only the most recently
+      started remote video track will be displayed.)
   -->
   
   <script>
@@ -118,7 +116,7 @@
       }
       window._room = `https://${_ps.get('domain')}.daily.co/${_ps.get('room')}`;
 
-      console.log('arguments: ', _room, _width, _height, _fps, _kbs);
+      console.log('settings: ', _room, _width, _height, _fps, _kbs);
     }
 
   </script>

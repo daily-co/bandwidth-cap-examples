@@ -26,12 +26,12 @@
       use larger macroblocks and will target a maximum bitrate of ~250
       kb/s. Because of the larger macroblocks, there will be little
       visual difference between h264 and vp8 when Safari is sending a
-      track. Safari's h264 encoder also more aggressively reduced the
+      track. Safari's h264 encoder also more aggressively reduces the
       bitrate when there is relatively little motion in the track. The
       main tradeoff is that with h264, packet loss handling is much
       less robust, so on a network with bursty packet loss there will
       be longer freezes and occasional video artifacts when a keyframe
-      is dropped. This is generally perceived by users as quite
+      is dropped. This is generally perceived by users as
       disruptive.
 
       Safari also will not always deliver the requested framerate when
@@ -39,8 +39,6 @@
 
       Note: this code has no error handling. (Errors are printed to the
       console.)
-
-      
   -->
 
   <script>
@@ -65,8 +63,8 @@
         //
         let pc240 = await connect(
           track240,
-          document.querySelector("#lowres-nocap .local"),
-          document.querySelector("#lowres-nocap .receive"),
+          document.querySelector('#lowres-nocap .local'),
+          document.querySelector('#lowres-nocap .receive'),
           null // no bitrate target
         );
 
@@ -76,8 +74,8 @@
         //
         let pc480 = await connect(
           track480,
-          document.querySelector("#midres-capped .local"),
-          document.querySelector("#midres-capped .receive"),
+          document.querySelector('#midres-capped .local'),
+          document.querySelector('#midres-capped .receive'),
           450000 // set bitrate target to 450kb/s 
         );
 
@@ -85,8 +83,8 @@
         // fetch and print incoming video resolution, framerate,
         // and bitrate. (hardcoded to refresh every two seconds.)
         //
-        doStats(pc240, document.querySelector("#lowres-nocap .label"));
-        doStats(pc480, document.querySelector("#midres-capped .label"));
+        doStats(pc240, document.querySelector('#lowres-nocap .label'));
+        doStats(pc480, document.querySelector('#midres-capped .label'));
         
       } catch (e) {
         console.error(e);
