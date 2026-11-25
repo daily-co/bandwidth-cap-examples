@@ -6,7 +6,10 @@
   <!-- 
       Minimal test code showing p2p bitrate control with Daily's APIs.
 
-      Supply a Daily domain and room as URL arguments.
+      Supply a Daily domain and room as URL arguments. The room must be
+      configured to keep two-participant calls peer-to-peer: set its
+      enable_adaptive_simulcast property to false and its sfu_switchover
+      property to 2 (see the comment in main() below).
 
       Note: this code has almost no error handling. (Errors are
       printed to the console.) Also, no attempt is made to handle more
@@ -52,14 +55,18 @@
       await call.join();
 
       //
-      // ensure peer-to-peer mode
+      // peer-to-peer mode comes from the room's configuration. with
+      // enable_adaptive_simulcast set to false and sfu_switchover set
+      // to 2, a call stays peer-to-peer until a third participant joins.
+      // (while enable_adaptive_simulcast is on, which is the default,
+      // calls use the SFU whatever sfu_switchover says.) for example:
       //
-      // setNetworkTopology() is mostly used for testing (and for a few
-      // unusual use cases). In general, in production code, it's better
-      // to configure p2p/sfu switchover behavior using a persistent
-      // room property
+      //   curl --request POST \
+      //     --url https://api.daily.co/v1/rooms/ROOM_NAME \
+      //     --header 'Authorization: Bearer DAILY_API_KEY' \
+      //     --header 'Content-Type: application/json' \
+      //     --data '{"properties": {"enable_adaptive_simulcast": false, "sfu_switchover": 2}}'
       //
-      call.setNetworkTopology({ topology: 'peer' });
 
       //
       // in peer-to-peer mode, setNetwork() is the best way to set
